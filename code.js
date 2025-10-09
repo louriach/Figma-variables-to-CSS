@@ -303,12 +303,18 @@ function createFigmaVariables(collections) {
                         const variableType = variableTypes.get(varKey) || determineVariableType(variable.value);
                         figmaVariable = figma.variables.createVariable(variable.name, figmaCollection, variableType);
                     }
-                    // Store the variable for later reference
-                    variableMap.set(`--${variable.name}`, figmaVariable);
+                    // Store the variable for later reference with both collection-scoped and global keys
+                    // Collection-scoped key for setting values
+                    variableMap.set(`${collection.name}:${variable.name}`, figmaVariable);
+                    // Global key for cross-collection variable references (for aliases)
+                    if (!variableMap.has(`--${variable.name}`)) {
+                        variableMap.set(`--${variable.name}`, figmaVariable);
+                    }
                 }
             }
         }
         // Fourth pass: Set values after all variables are created
+        const errors = [];
         for (const collection of collections) {
             const figmaCollection = yield figma.variables.getLocalVariableCollectionsAsync()
                 .then(collections => collections.find(c => c.name === collection.name));
@@ -317,22 +323,33 @@ function createFigmaVariables(collections) {
                     const modeId = (_d = figmaCollection.modes.find(m => m.name === modeName)) === null || _d === void 0 ? void 0 : _d.modeId;
                     if (modeId) {
                         for (const variable of variables) {
-                            const figmaVariable = variableMap.get(`--${variable.name}`);
+                            // Look up the variable using the collection-scoped key to ensure we get the right one
+                            const figmaVariable = variableMap.get(`${collection.name}:${variable.name}`);
                             if (figmaVariable) {
-                                try {
-                                    const value = yield parseVariableValue(variable.value, figmaVariable.resolvedType, variableMap);
-                                    figmaVariable.setValueForMode(modeId, value);
-                                }
-                                catch (error) {
-                                    // Properly handle the unknown error type
-                                    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-                                    console.error(`Error setting value for variable ${variable.name}: ${errorMessage}`);
+                                // Only set value if this mode exists for this variable
+                                const variableHasMode = figmaVariable.variableCollectionId === figmaCollection.id;
+                                if (variableHasMode) {
+                                    try {
+                                        const value = yield parseVariableValue(variable.value, figmaVariable.resolvedType, variableMap);
+                                        figmaVariable.setValueForMode(modeId, value);
+                                    }
+                                    catch (error) {
+                                        // Properly handle the unknown error type
+                                        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                                        const fullError = `Error setting value for variable "${variable.name}" in mode "${modeName}": ${errorMessage}`;
+                                        console.error(fullError);
+                                        errors.push(fullError);
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
+        }
+        // If there were any errors, throw them so the UI can display them
+        if (errors.length > 0) {
+            throw new Error(`Some variables could not be imported:\n${errors.join('\n')}`);
         }
     });
 }
@@ -427,15 +444,34 @@ function parseVariableValue(value, type, variableMap) {
                 // Find the referenced variable from our map
                 const referencedVar = variableMap.get(`--${referencedVarName}`);
                 if (referencedVar) {
-                    // Return a variable alias regardless of type
-                    // Figma will handle the type conversion if needed
-                    return {
-                        type: 'VARIABLE_ALIAS',
-                        id: referencedVar.id
-                    };
+                    // Check if the referenced variable's type matches the expected type
+                    if (referencedVar.resolvedType === type) {
+                        // Types match, create an alias
+                        return {
+                            type: 'VARIABLE_ALIAS',
+                            id: referencedVar.id
+                        };
+                    }
+                    else {
+                        // Types don't match - log a warning and return a default value
+                        console.warn(`Type mismatch for variable reference: expected ${type} but referenced variable "${referencedVarName}" is ${referencedVar.resolvedType}. Using default value instead.`);
+                        // Return a default value based on the expected type
+                        switch (type) {
+                            case 'COLOR':
+                                return { r: 0, g: 0, b: 0 }; // Default black
+                            case 'FLOAT':
+                                return 0;
+                            case 'BOOLEAN':
+                                return false;
+                            case 'STRING':
+                            default:
+                                return `var(--${referencedVarName})`;
+                        }
+                    }
                 }
                 else {
                     // If referenced variable doesn't exist yet, provide a default value based on type
+                    console.warn(`Referenced variable "${referencedVarName}" not found. Using default value.`);
                     switch (type) {
                         case 'COLOR':
                             return { r: 0, g: 0, b: 0 }; // Default black
