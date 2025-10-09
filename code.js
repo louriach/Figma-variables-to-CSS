@@ -279,7 +279,12 @@ function createFigmaVariables(collections) {
                     catch (error) {
                         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
                         if (errorMessage.includes('read-only') || errorMessage.includes('readonly') || errorMessage.includes("Can't call")) {
-                            throw new Error('Unable to create variables: This file is in read-only mode. Please make sure you have edit permissions for this file. You may need to duplicate the file to your drafts or request edit access from the file owner.');
+                            throw new Error('Unable to create variables: This file is in read-only mode.\n\n' +
+                                'Common solutions:\n' +
+                                '1. If you\'re in Dev Mode, switch to Design mode (top-right corner)\n' +
+                                '2. Make sure you have edit permissions for this file\n' +
+                                '3. Duplicate the file to your drafts (File → Duplicate)\n' +
+                                '4. Request edit access from the file owner');
                         }
                         throw error;
                     }
@@ -303,7 +308,7 @@ function createFigmaVariables(collections) {
                             catch (error) {
                                 const errorMessage = error instanceof Error ? error.message : 'Unknown error';
                                 if (errorMessage.includes('read-only') || errorMessage.includes('readonly') || errorMessage.includes("Can't call")) {
-                                    throw new Error('Unable to create modes: This file is in read-only mode. Please make sure you have edit permissions for this file.');
+                                    throw new Error('Unable to create modes: This file is in read-only mode. Please switch from Dev Mode to Design mode, or ensure you have edit permissions.');
                                 }
                                 throw error;
                             }
@@ -326,7 +331,7 @@ function createFigmaVariables(collections) {
                             catch (error) {
                                 const errorMessage = error instanceof Error ? error.message : 'Unknown error';
                                 if (errorMessage.includes('read-only') || errorMessage.includes('readonly') || errorMessage.includes("Can't call")) {
-                                    throw new Error('Unable to create variables: This file is in read-only mode. Please make sure you have edit permissions for this file.');
+                                    throw new Error('Unable to create variables: This file is in read-only mode. Please switch from Dev Mode to Design mode, or ensure you have edit permissions.');
                                 }
                                 throw error;
                             }
