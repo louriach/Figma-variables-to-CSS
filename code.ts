@@ -279,62 +279,97 @@ async function createFigmaVariables(collections: CSSCollection[]) {
   
   // Third pass: Create collections and variables
   for (const collection of collections) {
-    // Get all collections asynchronously
-    const figmaCollections = await figma.variables.getLocalVariableCollectionsAsync();
-    let figmaCollection = figmaCollections.find(c => c.name === collection.name);
-    
-    // Create collection if it doesn't exist
-    if (!figmaCollection) {
-      const firstModeName = Array.from(collection.modes.keys())[0] || "Default";
-      figmaCollection = figma.variables.createVariableCollection(collection.name);
+    try {
+      // Get all collections asynchronously
+      const figmaCollections = await figma.variables.getLocalVariableCollectionsAsync();
+      let figmaCollection = figmaCollections.find(c => c.name === collection.name);
       
-      if (figmaCollection.modes.length > 0) {
-        const defaultMode = figmaCollection.modes[0];
-        figmaCollection.renameMode(defaultMode.modeId, firstModeName);
-      }
-    }
-    
-    // Process each mode in the collection
-    for (const [modeName, variables] of collection.modes.entries()) {
-      // Check if mode exists, create if not
-      let modeId = figmaCollection.modes.find(m => m.name === modeName)?.modeId;
-      if (!modeId) {
-        if (modeName === figmaCollection.modes[0]?.name) {
-          modeId = figmaCollection.modes[0].modeId;
-        } else {
-          modeId = figmaCollection.addMode(modeName);
+      // Create collection if it doesn't exist
+      if (!figmaCollection) {
+        const firstModeName = Array.from(collection.modes.keys())[0] || "Default";
+        
+        try {
+          figmaCollection = figma.variables.createVariableCollection(collection.name);
+        } catch (error: unknown) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          if (errorMessage.includes('read-only') || errorMessage.includes('readonly') || errorMessage.includes("Can't call")) {
+            throw new Error('Unable to create variables: This file is in read-only mode.\n\n' +
+              'Common solutions:\n' +
+              '1. If you\'re in Dev Mode, switch to Design mode (top-right corner)\n' +
+              '2. Make sure you have edit permissions for this file\n' +
+              '3. Duplicate the file to your drafts (File → Duplicate)\n' +
+              '4. Request edit access from the file owner');
+          }
+          throw error;
+        }
+        
+        if (figmaCollection.modes.length > 0) {
+          const defaultMode = figmaCollection.modes[0];
+          figmaCollection.renameMode(defaultMode.modeId, firstModeName);
         }
       }
       
-      // Get all variables asynchronously
-      const figmaVariables = await figma.variables.getLocalVariablesAsync();
-      
-      // Create all variables
-      for (const variable of variables) {
-        // Check if variable exists
-        let figmaVariable = figmaVariables
-          .find(v => v.name === variable.name && v.variableCollectionId === figmaCollection.id);
+      // Process each mode in the collection
+      for (const [modeName, variables] of collection.modes.entries()) {
+        // Check if mode exists, create if not
+        let modeId = figmaCollection.modes.find(m => m.name === modeName)?.modeId;
+        if (!modeId) {
+          if (modeName === figmaCollection.modes[0]?.name) {
+            modeId = figmaCollection.modes[0].modeId;
+          } else {
+            try {
+              modeId = figmaCollection.addMode(modeName);
+            } catch (error: unknown) {
+              const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+              if (errorMessage.includes('read-only') || errorMessage.includes('readonly') || errorMessage.includes("Can't call")) {
+                throw new Error('Unable to create modes: This file is in read-only mode. Please switch from Dev Mode to Design mode, or ensure you have edit permissions.');
+              }
+              throw error;
+            }
+          }
+        }
         
-        // Create variable if it doesn't exist
-        if (!figmaVariable) {
-          const varKey = `${collection.name}:${variable.name}`;
-          const variableType = variableTypes.get(varKey) || determineVariableType(variable.value);
+        // Get all variables asynchronously
+        const figmaVariables = await figma.variables.getLocalVariablesAsync();
+        
+        // Create all variables
+        for (const variable of variables) {
+          // Check if variable exists
+          let figmaVariable = figmaVariables
+            .find(v => v.name === variable.name && v.variableCollectionId === figmaCollection.id);
           
-          figmaVariable = figma.variables.createVariable(
-            variable.name,
-            figmaCollection,
-            variableType
-          );
-        }
-        
-        // Store the variable for later reference with both collection-scoped and global keys
-        // Collection-scoped key for setting values
-        variableMap.set(`${collection.name}:${variable.name}`, figmaVariable);
-        // Global key for cross-collection variable references (for aliases)
-        if (!variableMap.has(`--${variable.name}`)) {
-          variableMap.set(`--${variable.name}`, figmaVariable);
+          // Create variable if it doesn't exist
+          if (!figmaVariable) {
+            const varKey = `${collection.name}:${variable.name}`;
+            const variableType = variableTypes.get(varKey) || determineVariableType(variable.value);
+            
+            try {
+              figmaVariable = figma.variables.createVariable(
+                variable.name,
+                figmaCollection,
+                variableType
+              );
+            } catch (error: unknown) {
+              const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+              if (errorMessage.includes('read-only') || errorMessage.includes('readonly') || errorMessage.includes("Can't call")) {
+                throw new Error('Unable to create variables: This file is in read-only mode. Please switch from Dev Mode to Design mode, or ensure you have edit permissions.');
+              }
+              throw error;
+            }
+          }
+          
+          // Store the variable for later reference with both collection-scoped and global keys
+          // Collection-scoped key for setting values
+          variableMap.set(`${collection.name}:${variable.name}`, figmaVariable);
+          // Global key for cross-collection variable references (for aliases)
+          if (!variableMap.has(`--${variable.name}`)) {
+            variableMap.set(`--${variable.name}`, figmaVariable);
+          }
         }
       }
+    } catch (error: unknown) {
+      // Re-throw the error to be caught by the outer handler
+      throw error;
     }
   }
   

@@ -6,7 +6,7 @@
   "capabilities": ["inspect"],
   "enableProposedApi": false,
   "documentAccess": "dynamic-page",
-  "editorType": ["figma", "dev"],
+  "editorType": ["figma"],
   "ui": "ui.html",
   "networkAccess": {
     "allowedDomains": [

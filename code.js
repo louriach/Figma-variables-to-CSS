@@ -266,51 +266,84 @@ function createFigmaVariables(collections) {
         }
         // Third pass: Create collections and variables
         for (const collection of collections) {
-            // Get all collections asynchronously
-            const figmaCollections = yield figma.variables.getLocalVariableCollectionsAsync();
-            let figmaCollection = figmaCollections.find(c => c.name === collection.name);
-            // Create collection if it doesn't exist
-            if (!figmaCollection) {
-                const firstModeName = Array.from(collection.modes.keys())[0] || "Default";
-                figmaCollection = figma.variables.createVariableCollection(collection.name);
-                if (figmaCollection.modes.length > 0) {
-                    const defaultMode = figmaCollection.modes[0];
-                    figmaCollection.renameMode(defaultMode.modeId, firstModeName);
+            try {
+                // Get all collections asynchronously
+                const figmaCollections = yield figma.variables.getLocalVariableCollectionsAsync();
+                let figmaCollection = figmaCollections.find(c => c.name === collection.name);
+                // Create collection if it doesn't exist
+                if (!figmaCollection) {
+                    const firstModeName = Array.from(collection.modes.keys())[0] || "Default";
+                    try {
+                        figmaCollection = figma.variables.createVariableCollection(collection.name);
+                    }
+                    catch (error) {
+                        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                        if (errorMessage.includes('read-only') || errorMessage.includes('readonly') || errorMessage.includes("Can't call")) {
+                            throw new Error('Unable to create variables: This file is in read-only mode. Please make sure you have edit permissions for this file. You may need to duplicate the file to your drafts or request edit access from the file owner.');
+                        }
+                        throw error;
+                    }
+                    if (figmaCollection.modes.length > 0) {
+                        const defaultMode = figmaCollection.modes[0];
+                        figmaCollection.renameMode(defaultMode.modeId, firstModeName);
+                    }
+                }
+                // Process each mode in the collection
+                for (const [modeName, variables] of collection.modes.entries()) {
+                    // Check if mode exists, create if not
+                    let modeId = (_b = figmaCollection.modes.find(m => m.name === modeName)) === null || _b === void 0 ? void 0 : _b.modeId;
+                    if (!modeId) {
+                        if (modeName === ((_c = figmaCollection.modes[0]) === null || _c === void 0 ? void 0 : _c.name)) {
+                            modeId = figmaCollection.modes[0].modeId;
+                        }
+                        else {
+                            try {
+                                modeId = figmaCollection.addMode(modeName);
+                            }
+                            catch (error) {
+                                const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                                if (errorMessage.includes('read-only') || errorMessage.includes('readonly') || errorMessage.includes("Can't call")) {
+                                    throw new Error('Unable to create modes: This file is in read-only mode. Please make sure you have edit permissions for this file.');
+                                }
+                                throw error;
+                            }
+                        }
+                    }
+                    // Get all variables asynchronously
+                    const figmaVariables = yield figma.variables.getLocalVariablesAsync();
+                    // Create all variables
+                    for (const variable of variables) {
+                        // Check if variable exists
+                        let figmaVariable = figmaVariables
+                            .find(v => v.name === variable.name && v.variableCollectionId === figmaCollection.id);
+                        // Create variable if it doesn't exist
+                        if (!figmaVariable) {
+                            const varKey = `${collection.name}:${variable.name}`;
+                            const variableType = variableTypes.get(varKey) || determineVariableType(variable.value);
+                            try {
+                                figmaVariable = figma.variables.createVariable(variable.name, figmaCollection, variableType);
+                            }
+                            catch (error) {
+                                const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                                if (errorMessage.includes('read-only') || errorMessage.includes('readonly') || errorMessage.includes("Can't call")) {
+                                    throw new Error('Unable to create variables: This file is in read-only mode. Please make sure you have edit permissions for this file.');
+                                }
+                                throw error;
+                            }
+                        }
+                        // Store the variable for later reference with both collection-scoped and global keys
+                        // Collection-scoped key for setting values
+                        variableMap.set(`${collection.name}:${variable.name}`, figmaVariable);
+                        // Global key for cross-collection variable references (for aliases)
+                        if (!variableMap.has(`--${variable.name}`)) {
+                            variableMap.set(`--${variable.name}`, figmaVariable);
+                        }
+                    }
                 }
             }
-            // Process each mode in the collection
-            for (const [modeName, variables] of collection.modes.entries()) {
-                // Check if mode exists, create if not
-                let modeId = (_b = figmaCollection.modes.find(m => m.name === modeName)) === null || _b === void 0 ? void 0 : _b.modeId;
-                if (!modeId) {
-                    if (modeName === ((_c = figmaCollection.modes[0]) === null || _c === void 0 ? void 0 : _c.name)) {
-                        modeId = figmaCollection.modes[0].modeId;
-                    }
-                    else {
-                        modeId = figmaCollection.addMode(modeName);
-                    }
-                }
-                // Get all variables asynchronously
-                const figmaVariables = yield figma.variables.getLocalVariablesAsync();
-                // Create all variables
-                for (const variable of variables) {
-                    // Check if variable exists
-                    let figmaVariable = figmaVariables
-                        .find(v => v.name === variable.name && v.variableCollectionId === figmaCollection.id);
-                    // Create variable if it doesn't exist
-                    if (!figmaVariable) {
-                        const varKey = `${collection.name}:${variable.name}`;
-                        const variableType = variableTypes.get(varKey) || determineVariableType(variable.value);
-                        figmaVariable = figma.variables.createVariable(variable.name, figmaCollection, variableType);
-                    }
-                    // Store the variable for later reference with both collection-scoped and global keys
-                    // Collection-scoped key for setting values
-                    variableMap.set(`${collection.name}:${variable.name}`, figmaVariable);
-                    // Global key for cross-collection variable references (for aliases)
-                    if (!variableMap.has(`--${variable.name}`)) {
-                        variableMap.set(`--${variable.name}`, figmaVariable);
-                    }
-                }
+            catch (error) {
+                // Re-throw the error to be caught by the outer handler
+                throw error;
             }
         }
         // Fourth pass: Set values after all variables are created
