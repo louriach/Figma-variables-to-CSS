@@ -80,15 +80,8 @@ async function getVariableDisplayValueForMode(variable: Variable, modeId: string
   if (isVariableAlias(rawValue)) {
     const aliasVar = await figma.variables.getVariableByIdAsync(rawValue.id);
     if (aliasVar) {
-      if (aliasVar.resolvedType === "COLOR") {
-        const aliasRawValues = (aliasVar).valuesByMode;
-        let colorValue = "";
-        if (aliasRawValues && aliasRawValues[modeId]) {
-          colorValue = convertColorToCSS(aliasRawValues[modeId]);
-        }
-        // Return alias with a delimiter separating the alias name and the color.
-        return "alias:" + aliasVar.name + colorValue;
-      }
+      // For any alias, just return the alias name without resolving the value
+      // The CSS generation will convert this to var(--name)
       return "alias:" + aliasVar.name;
     }
     return "alias:Unknown";
